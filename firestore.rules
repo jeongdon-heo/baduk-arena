@@ -1,0 +1,39 @@
+// Firestore security rules for Baduk Arena.
+//
+// Copy these into Firebase console → Firestore Database → Rules tab.
+// They allow anonymous-signed-in users to read any room and to create/join
+// rooms. Move validation is done client-side (the v1 trust model assumes
+// friends playing each other, not a public ladder).
+//
+// If you later want server-authoritative moves, add Cloud Functions that
+// validate writes and lock down direct writes here.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /rooms/{roomId} {
+      // Anyone signed in (including anonymous) can read any room.
+      allow read: if request.auth != null;
+
+      // Create: must include yourself as the black player.
+      allow create: if request.auth != null
+                    && request.resource.data.players.black.uid == request.auth.uid
+                    && request.resource.data.hostUid == request.auth.uid;
+
+      // Update: must be a participant (black or white) in the room.
+      // Once you've claimed the white slot, you're a participant and can
+      // continue updating moves.
+      allow update: if request.auth != null && (
+        resource.data.players.black.uid == request.auth.uid
+        || resource.data.players.white.uid == request.auth.uid
+        // Joining as white when the slot is empty:
+        || (resource.data.players.white == null
+            && request.resource.data.players.white.uid == request.auth.uid)
+      );
+
+      // Don't allow deletion from the client. Use admin console for cleanup.
+      allow delete: if false;
+    }
+  }
+}
