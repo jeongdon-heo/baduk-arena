@@ -12,7 +12,10 @@ export default function BoardView({
   onClick, onHover, onLeave,
   disabled = false,
 }) {
-  const cellSize = size >= 19 ? 22 : size >= 15 ? 28 : size >= 13 ? 30 : 38;
+  // Cell size in CSS px — picked so the natural board comfortably fills a
+  // typical laptop screen. The SVG also scales down via maxWidth/maxHeight
+  // below, so smaller viewports still fit.
+  const cellSize = size >= 19 ? 34 : size >= 15 ? 42 : size >= 13 ? 48 : 60;
   const pad = cellSize * 1.2;
   const svgW = cellSize * (size - 1) + pad * 2;
   const stars = getStarPoints(size);
@@ -56,7 +59,7 @@ export default function BoardView({
     }}>
       <svg width={svgW} height={svgW} viewBox={`0 0 ${svgW} ${svgW}`}
         onClick={handleClick} onMouseMove={handleMove} onMouseLeave={onLeave}
-        style={{ display: 'block', cursor: disabled ? 'default' : 'pointer', maxWidth: '90vw', maxHeight: '68vh' }}>
+        style={{ display: 'block', cursor: disabled ? 'default' : 'pointer', maxWidth: '94vw', maxHeight: '82vh' }}>
         <defs>
           <radialGradient id="bs" cx="35%" cy="35%">
             <stop offset="0%" stopColor="#666" />
