@@ -190,10 +190,12 @@ export function goAiSelectMove(board, color, size, simulations, koPoint) {
       stat.visits++; if (w===color) stat.wins++;
     }
   }
-  return evalList.reduce((a,b) => {
+  const best = evalList.reduce((a,b) => {
     if (!a.visits) return b; if (!b.visits) return a;
     return (a.wins/a.visits)>(b.wins/b.visits)?a:b;
-  }).move;
+  });
+  const winRate = best.visits ? best.wins / best.visits : 0.5;
+  return { x: best.move.x, y: best.move.y, winRate };
 }
 
 export function getGoSims(diff, size) {
@@ -358,15 +360,15 @@ export function gomokuAiMove(board, color, size, difficulty) {
   scored.sort((a,b) => b.s - a.s);
   const topMoves = scored.slice(0, depth <= 1 ? 10 : 15);
 
-  let bestMove = topMoves[0], bestScore = -Infinity;
+  let bestMove = topMoves[0], bestScore = -Infinity, bestRawScore = -Infinity;
   for (const {x,y} of topMoves) {
     board[y][x] = color;
     const score = gomokuMinimax(board, size, depth-1, -Infinity, Infinity, false, color);
     board[y][x] = EMPTY;
     const noise = difficulty === 'easy' ? (Math.random()-0.5)*20000 : 0;
-    if (score + noise > bestScore) { bestScore = score + noise; bestMove = {x,y}; }
+    if (score + noise > bestScore) { bestScore = score + noise; bestRawScore = score; bestMove = {x,y}; }
   }
-  return bestMove;
+  return { ...bestMove, evalScore: bestRawScore };
 }
 
 // ══════════════════════════════════════════════════════

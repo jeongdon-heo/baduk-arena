@@ -35,6 +35,8 @@ export default function BoardArena() {
   const [hover, setHover] = useState(null);
   const [winner, setWinner] = useState(null);
   const [winLine, setWinLine] = useState(null);
+  const [aiLossStreak, setAiLossStreak] = useState(0);
+  const [aiResigned, setAiResigned] = useState(false);
 
   // Online mode state (room joined in lobby, passed to OnlineGame)
   const [onlineRoom, setOnlineRoom] = useState(null);
@@ -52,6 +54,7 @@ export default function BoardArena() {
     setBlackCap(0); setWhiteCap(0); setHistory([]); setPassCount(0);
     setGameOver(false); setScores(null); setTerrMap(null);
     setAiThinking(false); setMoveNum(0); setWinner(null); setWinLine(null);
+    setAiLossStreak(0); setAiResigned(false);
     setScreen('game');
   };
 
@@ -111,6 +114,7 @@ export default function BoardArena() {
     setLastMove(t.lastMove); setPassCount(t.passCount); setMoveNum(t.moveNum);
     setHistory(h => h.slice(0, h.length - steps));
     setGameOver(false); setScores(null); setTerrMap(null); setWinner(null); setWinLine(null);
+    setAiResigned(false); setAiLossStreak(0);
   }, [history, aiThinking, mode]);
 
   // ── Resign ──
@@ -144,6 +148,18 @@ export default function BoardArena() {
             setGameOver(true);
           } else { setPassCount(np); setCurrentColor(3 - currentColor); setKoPoint(null); setLastMove(null); }
         } else {
+          // Resignation check: only after mid-game so MCTS estimates are stable.
+          const enoughMoves = moveNum > Math.floor(boardSize * boardSize / 4);
+          const losing = enoughMoves && move.winRate < 0.10;
+          const newStreak = losing ? aiLossStreak + 1 : 0;
+          if (newStreak >= 2) {
+            const t = calculateTerritory(board, boardSize);
+            setTerrMap(t.territory);
+            setScores({ resigned: true, winnerName: playerColor === BLACK ? '흑' : '백', aiResigned: true });
+            setAiResigned(true); setGameOver(true); setAiThinking(false);
+            return;
+          }
+          setAiLossStreak(newStreak);
           const r = tryPlaceStone(board, move.x, move.y, currentColor, boardSize, koPoint);
           if (r) {
             setHistory(h => [...h, snap()]);
@@ -157,6 +173,14 @@ export default function BoardArena() {
         const bc = board.map(r => [...r]);
         const move = gomokuAiMove(bc, currentColor, boardSize, difficulty);
         if (move) {
+          // Resignation check: opponent has an unblockable threat (eval ~ -80000 for open four).
+          const losing = move.evalScore < -50000;
+          const newStreak = losing ? aiLossStreak + 1 : 0;
+          if (newStreak >= 2) {
+            setWinner(playerColor); setAiResigned(true); setGameOver(true); setAiThinking(false);
+            return;
+          }
+          setAiLossStreak(newStreak);
           const nb = copyBoard(board);
           nb[move.y][move.x] = currentColor;
           setHistory(h => [...h, snap()]);
@@ -343,7 +367,7 @@ export default function BoardArena() {
       {gameOver && (
         <div style={{ background: 'rgba(40,32,24,0.95)', border: `1px solid ${C.bdr}`, borderRadius: 12, padding: '14px 24px', textAlign: 'center', maxWidth: '90vw' }}>
           {isGo && scores && (scores.resigned
-            ? <div style={{ color: C.t1, fontSize: 18, fontWeight: 700 }}>{scores.winnerName} 승 (기권)</div>
+            ? <div style={{ color: C.t1, fontSize: 18, fontWeight: 700 }}>{scores.winnerName} 승 ({scores.aiResigned ? 'AI 기권' : '기권'})</div>
             : <>
                 <div style={{ color: C.t1, fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{scores.black > scores.white ? '흑 승' : '백 승'}</div>
                 <div style={{ display: 'flex', gap: 28, justifyContent: 'center', color: C.t3, fontSize: 12 }}>
@@ -356,7 +380,8 @@ export default function BoardArena() {
           {!isGo && (
             <div style={{ color: C.t1, fontSize: 20, fontWeight: 700 }}>
               {winner === 0 ? '무승부' : winner === BLACK ? '흑 승!' : '백 승!'}
-              {winner && winner !== 0 && !scores?.resigned && <span style={{ fontSize: 13, fontWeight: 400, color: C.t4, marginLeft: 8 }}>({moveNum}수 만에)</span>}
+              {aiResigned && <span style={{ fontSize: 13, fontWeight: 400, color: C.t4, marginLeft: 8 }}>(AI 기권)</span>}
+              {winner && winner !== 0 && !scores?.resigned && !aiResigned && <span style={{ fontSize: 13, fontWeight: 400, color: C.t4, marginLeft: 8 }}>({moveNum}수 만에)</span>}
             </div>
           )}
         </div>
