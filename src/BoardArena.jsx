@@ -169,7 +169,11 @@ export default function BoardArena() {
       setAiThinking(false);
     }, 80);
     return () => clearTimeout(timer);
-  }, [mode, currentColor, playerColor, gameOver, board, aiThinking, difficulty, boardSize, koPoint, passCount, gameType]);
+    // aiThinking은 deps에서 제외: setAiThinking(true)로 effect가 재실행될 때
+    // 이전 effect의 cleanup이 호출되어 timer가 취소되는 레이스를 막는다.
+    // 내부 가드(aiThinking 체크)가 중복 실행을 방지함.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, currentColor, playerColor, gameOver, board, difficulty, boardSize, koPoint, passCount, gameType]);
 
   // ══════════════════════════════════════════
   //  ONLINE FLOW
