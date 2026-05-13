@@ -108,7 +108,7 @@ export function calculateTerritory(board, size) {
   return { territory, blackScore: bS+bT, whiteScore: wS+wT, blackTerritory: bT, whiteTerritory: wT, blackStones: bS, whiteStones: wS };
 }
 
-// ── GO AI (Flat MCTS) ────────────────────────────────
+// ── GO AI (Flat MCTS + prior heuristics) ─────────────
 function isSimpleEye(board, x, y, color, size) {
   if (board[y][x] !== EMPTY) return false;
   const nbrs = getNeighbors(x,y,size);
@@ -120,6 +120,96 @@ function isSimpleEye(board, x, y, color, size) {
   if (x<size-1&&y<size-1) diags.push(board[y+1][x+1]);
   const oppCount = diags.filter(c => c === (3-color)).length;
   return oppCount <= (4 - diags.length > 0 ? 0 : 1);
+}
+
+// 정석/포석에서 두는 점들: 화점(4-4), 소목(3-4), 삼삼(3-3), 변 화점.
+// getStarPoints를 베이스로 작은 보드에서도 자연스럽게 동작하도록 확장.
+function goodOpeningPoints(size) {
+  const pts = new Set();
+  const add = (x, y) => { if (x>=0&&x<size&&y>=0&&y<size) pts.add(y*size+x); };
+  for (const [x,y] of getStarPoints(size)) add(x,y);
+  if (size >= 13) {
+    // 삼삼 (3-3)
+    add(2,2); add(size-3,2); add(2,size-3); add(size-3,size-3);
+    // 소목 (3-4 / 4-3)
+    add(2,3); add(3,2); add(size-4,2); add(size-3,3);
+    add(2,size-4); add(3,size-3); add(size-4,size-3); add(size-3,size-4);
+  } else if (size === 9) {
+    // 9×9: 화점은 이미 star로 추가됨. 소목 비슷한 (2,3)(3,2) 정도 추가.
+    add(2,3); add(3,2); add(5,2); add(6,3); add(2,5); add(3,6); add(5,6); add(6,5);
+  }
+  return pts;
+}
+
+// 한 수의 prior 점수: 정석 위치, 모양, 따냄/단수, 자살수 회피 등을 종합 평가.
+// MCTS 전에 후보를 솎아내고 좋은 수를 위로 끌어올리는 용도.
+function evalMovePrior(board, x, y, color, size, openingSet, isOpening) {
+  let score = 0;
+  const opp = 3 - color;
+  const edge = Math.min(x, size-1-x, y, size-1-y);
+
+  // 1선·2선 페널티 (포석에서 특히 나쁨)
+  if (edge === 0) score -= isOpening ? 60 : 20;
+  else if (edge === 1) score -= isOpening ? 25 : 5;
+  // 3·4선 보너스 (포석에서)
+  if (isOpening && (edge === 2 || edge === 3)) score += 6;
+
+  // 정석/포석 점 보너스 — 포석 단계에서만
+  if (isOpening && openingSet.has(y*size+x)) score += 70;
+
+  // 가상 착수로 전술 평가
+  const nb = copyBoard(board);
+  nb[y][x] = color;
+  let captures = 0, atariOpp = 0;
+  for (const [nx,ny] of getNeighbors(x,y,size)) {
+    if (nb[ny][nx] === opp) {
+      const g = findGroup(nb,nx,ny,size);
+      const libs = getGroupLiberties(nb,g,size);
+      if (libs === 0) { captures += g.length; for (const [gx,gy] of g) nb[gy][gx] = EMPTY; }
+      else if (libs === 1) atariOpp += g.length;
+    }
+  }
+  score += captures * 35;
+  score += atariOpp * 15;
+
+  // 자기 그룹 활로
+  const sg = findGroup(nb,x,y,size);
+  const selfLibs = getGroupLiberties(nb,sg,size);
+  if (selfLibs === 0) return -1e9; // 자살수
+  if (selfLibs === 1) score -= 60;  // 자충
+  else if (selfLibs === 2) score -= 8;
+
+  // 단수에 빠진 자기 그룹 살리기
+  for (const [nx,ny] of getNeighbors(x,y,size)) {
+    if (board[ny][nx] === color) {
+      const g = findGroup(board,nx,ny,size);
+      if (getGroupLiberties(board,g,size) === 1 && selfLibs >= 2) {
+        score += 25; break;
+      }
+    }
+  }
+
+  // 모양: 가까운 우군 돌과의 거리 (체비셰프)
+  let minOwn = 99, minOpp = 99;
+  for (let yy = 0; yy < size; yy++) {
+    for (let xx = 0; xx < size; xx++) {
+      const c = board[yy][xx];
+      if (c === EMPTY) continue;
+      const d = Math.max(Math.abs(xx-x), Math.abs(yy-y));
+      if (c === color && d < minOwn) minOwn = d;
+      else if (c === opp && d < minOpp) minOpp = d;
+    }
+  }
+  // 한 칸 뜀·날일자 (체비셰프 2)가 가장 좋은 확장
+  if (minOwn === 2) score += 10;
+  else if (minOwn === 1) score += 3;       // 마늘모·붙임
+  else if (minOwn === 3) score += 5;       // 두 칸 벌림
+  else if (minOwn >= 5 && isOpening) score -= 4; // 너무 떨어진 외톨이
+
+  // 포석에서 상대와 곧바로 접촉(붙임)하는 수는 일반적으로 손해
+  if (isOpening && minOpp === 1 && atariOpp === 0 && captures === 0) score -= 8;
+
+  return score;
 }
 
 function fastRandomPlayout(boardIn, color, size) {
@@ -158,9 +248,10 @@ function fastRandomPlayout(boardIn, color, size) {
 
 export function goAiSelectMove(board, color, size, simulations, koPoint) {
   const legalMoves = [];
+  let stoneCount = 0;
   for (let y=0;y<size;y++) for (let x=0;x<size;x++) {
-    if (board[y][x]!==EMPTY) continue;
-    if (koPoint&&koPoint.x===x&&koPoint.y===y) continue;
+    if (board[y][x] !== EMPTY) { stoneCount++; continue; }
+    if (koPoint && koPoint.x===x && koPoint.y===y) continue;
     if (tryPlaceStone(board,x,y,color,size,koPoint)) legalMoves.push({x,y});
   }
   if (!legalMoves.length) return null;
@@ -168,39 +259,71 @@ export function goAiSelectMove(board, color, size, simulations, koPoint) {
   const candidates = filtered.length ? filtered : legalMoves;
   if (simulations <= 0) return candidates[Math.floor(Math.random()*candidates.length)];
 
-  const capSet = new Set();
-  for (const m of candidates) {
-    const r = tryPlaceStone(board,m.x,m.y,color,size,koPoint);
-    if (r && r.captured > 0) capSet.add(m.x+','+m.y);
+  // 포석 단계 여부: 보드 면적의 ~20%까지를 포석으로 간주.
+  const isOpening = stoneCount < Math.max(6, Math.floor(size * size * 0.22));
+  const openingSet = goodOpeningPoints(size);
+
+  // prior로 후보 정렬, 상위 N개만 MCTS로 평가.
+  let evalList = candidates.map(m => ({
+    move: m,
+    wins: 0,
+    visits: 0,
+    prior: evalMovePrior(board, m.x, m.y, color, size, openingSet, isOpening) + Math.random()*2,
+  }));
+  evalList.sort((a,b) => b.prior - a.prior);
+  // 보드가 클수록 playout이 비싸므로 후보를 더 좁힌다.
+  const TOP_N = size <= 9 ? 8 : (size <= 13 ? 9 : 7);
+  evalList = evalList.slice(0, TOP_N);
+
+  // 모든 후보가 명백히 나쁘면(자살수 등) prior 1등만 그대로 반환.
+  if (evalList[0].prior <= -1e8) {
+    return { x: evalList[0].move.x, y: evalList[0].move.y, winRate: 0.5 };
   }
 
-  let evalList = candidates.map(m => {
-    const cx=size/2, cy=size/2, dist = Math.abs(m.x-cx)+Math.abs(m.y-cy);
-    return { move:m, wins:0, visits:0, priority: (capSet.has(m.x+','+m.y)?100:0)-dist+Math.random()*3 };
-  });
-  evalList.sort((a,b) => b.priority-a.priority);
-  evalList = evalList.slice(0, 30);
+  // 포석 초반은 prior만으로 즉답 (정석 형태 유지 + 19×19 응답 속도 개선).
+  // MCTS의 무작위 plyout은 빈 보드에서 잡음이 크고, 정석 위치를 흐트러뜨린다.
+  const skipMcts = stoneCount < Math.max(4, Math.floor(size * 0.6));
+  if (skipMcts) {
+    // 상위 2개 중 무작위 — 항상 같은 첫 수가 나오지 않도록 약간의 다양성.
+    const top = evalList.slice(0, Math.min(2, evalList.length));
+    const pick = top[Math.floor(Math.random() * top.length)];
+    return { x: pick.move.x, y: pick.move.y, winRate: 0.5 };
+  }
 
-  const simsPerMove = Math.max(1, Math.floor(simulations/evalList.length));
+  const simsPerMove = Math.max(1, Math.floor(simulations / evalList.length));
   for (const stat of evalList) {
-    const r = tryPlaceStone(board,stat.move.x,stat.move.y,color,size,koPoint);
+    const r = tryPlaceStone(board, stat.move.x, stat.move.y, color, size, koPoint);
     if (!r) continue;
-    for (let s=0; s<simsPerMove; s++) {
+    for (let s = 0; s < simsPerMove; s++) {
       const w = fastRandomPlayout(r.board, 3-color, size);
-      stat.visits++; if (w===color) stat.wins++;
+      stat.visits++; if (w === color) stat.wins++;
     }
   }
-  const best = evalList.reduce((a,b) => {
-    if (!a.visits) return b; if (!b.visits) return a;
-    return (a.wins/a.visits)>(b.wins/b.visits)?a:b;
+
+  // 최종 선택: 승률 + prior를 결합 (prior는 정석 형태를 유지하는 tie-breaker).
+  // prior가 강할수록 (정석 점일수록) 살짝 가산점을 받아, 비슷한 승률이면 정석 자리를 선호.
+  const priorMax = Math.max(...evalList.map(s => s.prior));
+  const priorMin = Math.min(...evalList.map(s => s.prior));
+  const priorRange = Math.max(1, priorMax - priorMin);
+  const best = evalList.reduce((a, b) => {
+    const sa = (a.visits ? a.wins/a.visits : 0.5) + 0.05*((a.prior - priorMin)/priorRange);
+    const sb = (b.visits ? b.wins/b.visits : 0.5) + 0.05*((b.prior - priorMin)/priorRange);
+    return sa >= sb ? a : b;
   });
   const winRate = best.visits ? best.wins / best.visits : 0.5;
   return { x: best.move.x, y: best.move.y, winRate };
 }
 
 export function getGoSims(diff, size) {
-  const t = { 9:{easy:100,medium:600,hard:2000}, 13:{easy:60,medium:300,hard:800}, 19:{easy:30,medium:150,hard:400} };
-  return (t[size]||t[9])[diff]||200;
+  // prior 휴리스틱 도입으로 후보 수가 30 → 8~12로 줄어들어,
+  // 동일/그 이상 강도를 더 낮은 sim 예산으로 달성. 어려움이 1초 안에 응답.
+  const t = {
+    9:  { easy: 80, medium: 300, hard: 600 },
+    13: { easy: 40, medium: 120, hard: 220 },
+    15: { easy: 30, medium: 80,  hard: 150 },
+    19: { easy: 18, medium: 50,  hard: 100 },
+  };
+  return (t[size] || t[9])[diff] || 200;
 }
 
 // ══════════════════════════════════════════════════════
