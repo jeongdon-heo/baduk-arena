@@ -123,7 +123,13 @@ export default function BoardArena() {
     if (gameType === 'go') {
       const t = calculateTerritory(board, boardSize);
       setTerrMap(t.territory);
-      setScores({ resigned: true, winnerName: currentColor === BLACK ? '백' : '흑' });
+      setScores({
+        resigned: true,
+        winnerName: currentColor === BLACK ? '백' : '흑',
+        black: t.blackScore, white: t.whiteScore + KOMI,
+        bT: t.blackTerritory, wT: t.whiteTerritory,
+        bS: t.blackStones, wS: t.whiteStones,
+      });
     } else {
       setWinner(3 - currentColor);
     }
@@ -155,7 +161,13 @@ export default function BoardArena() {
           if (newStreak >= 2) {
             const t = calculateTerritory(board, boardSize);
             setTerrMap(t.territory);
-            setScores({ resigned: true, winnerName: playerColor === BLACK ? '흑' : '백', aiResigned: true });
+            setScores({
+              resigned: true, aiResigned: true,
+              winnerName: playerColor === BLACK ? '흑' : '백',
+              black: t.blackScore, white: t.whiteScore + KOMI,
+              bT: t.blackTerritory, wT: t.whiteTerritory,
+              bS: t.blackStones, wS: t.whiteStones,
+            });
             setAiResigned(true); setGameOver(true); setAiThinking(false);
             return;
           }
@@ -366,16 +378,28 @@ export default function BoardArena() {
       {/* Score panel */}
       {gameOver && (
         <div style={{ background: 'rgba(40,32,24,0.95)', border: `1px solid ${C.bdr}`, borderRadius: 12, padding: '14px 24px', textAlign: 'center', maxWidth: '90vw' }}>
-          {isGo && scores && (scores.resigned
-            ? <div style={{ color: C.t1, fontSize: 18, fontWeight: 700 }}>{scores.winnerName} 승 ({scores.aiResigned ? 'AI 기권' : '기권'})</div>
-            : <>
-                <div style={{ color: C.t1, fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{scores.black > scores.white ? '흑 승' : '백 승'}</div>
-                <div style={{ display: 'flex', gap: 28, justifyContent: 'center', color: C.t3, fontSize: 12 }}>
-                  <div><div style={{ fontWeight: 700, fontSize: 20, color: C.t2 }}>{scores.black.toFixed(1)}</div>흑 (집 {scores.bT} + 돌 {scores.bS})</div>
-                  <div style={{ color: '#5a4a38', fontSize: 18, alignSelf: 'center' }}>vs</div>
-                  <div><div style={{ fontWeight: 700, fontSize: 20, color: C.t2 }}>{scores.white.toFixed(1)}</div>백 (집 {scores.wT} + 돌 {scores.wS} + 덤 {KOMI})</div>
-                </div>
-              </>
+          {isGo && scores && (
+            <>
+              <div style={{ color: C.t1, fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
+                {scores.resigned
+                  ? <>{scores.winnerName} 승 <span style={{ fontSize: 13, fontWeight: 400, color: C.t4 }}>({scores.aiResigned ? 'AI 기권' : '기권'})</span></>
+                  : (scores.black > scores.white ? '흑 승' : '백 승')}
+              </div>
+              {scores.black != null && scores.white != null && (
+                <>
+                  <div style={{ display: 'flex', gap: 28, justifyContent: 'center', color: C.t3, fontSize: 12 }}>
+                    <div><div style={{ fontWeight: 700, fontSize: 20, color: C.t2 }}>{scores.black.toFixed(1)}</div>흑 (집 {scores.bT} + 돌 {scores.bS})</div>
+                    <div style={{ color: '#5a4a38', fontSize: 18, alignSelf: 'center' }}>vs</div>
+                    <div><div style={{ fontWeight: 700, fontSize: 20, color: C.t2 }}>{scores.white.toFixed(1)}</div>백 (집 {scores.wT} + 돌 {scores.wS} + 덤 {KOMI})</div>
+                  </div>
+                  {scores.resigned && (
+                    <div style={{ color: C.t5, fontSize: 11, marginTop: 8, letterSpacing: 1 }}>
+                      ※ 참고용 집 계산 (사석 처리 전 기준)
+                    </div>
+                  )}
+                </>
+              )}
+            </>
           )}
           {!isGo && (
             <div style={{ color: C.t1, fontSize: 20, fontWeight: 700 }}>
